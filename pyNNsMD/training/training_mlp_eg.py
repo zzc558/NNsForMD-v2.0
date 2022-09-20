@@ -30,8 +30,8 @@ print("Logic Devices:", tf.config.experimental.list_logical_devices('GPU'))
 import pyNNsMD.utils.callbacks
 import pyNNsMD.utils.activ
 from pyNNsMD.models.mlp_eg import EnergyGradientModel
-from pyNNsMD.scaler.energy import EnergyGradientStandardScaler
-from pyNNsMD.utils.loss import get_lr_metric, ScaledMeanAbsoluteError, r2_metric, ZeroEmptyLoss
+from pyNNsMD.scaler.energy import EnergyGradientStandardScaler, MaskedEnergyGradientStandardScaler
+from pyNNsMD.utils.loss import get_lr_metric, ScaledMeanAbsoluteError, r2_metric, ZeroEmptyLoss, MaskedScaledMeanAbsoluteError, masked_r2_metric, mask_MeanSquaredError
 from pyNNsMD.utils.data import load_json_file, read_xyz_file, save_json_file
 from pyNNsMD.plots.loss import plot_loss_curves, plot_learning_curve
 from pyNNsMD.plots.pred import plot_scatter_prediction
@@ -73,6 +73,7 @@ def train_model_energy_gradient(i=0, out_dir=None, mode='training'):
     learning_rate = training_config['learning_rate']
     loss_weights = training_config['loss_weights']
     use_callbacks = list(training_config["callbacks"])
+    use_mask = training_config["mask"]
 
     # Load data.
     data_dir = os.path.dirname(out_dir)
@@ -91,10 +92,10 @@ def train_model_energy_gradient(i=0, out_dir=None, mode='training'):
 
     # cbks, Learning rate schedule
     cbks = []
-    for x in use_callbacks:
-        if isinstance(x, dict):
+    for d in use_callbacks:
+        if isinstance(d, dict):
             # tf.keras.utils.get_registered_object()
-            cb = tf.keras.utils.deserialize_keras_object(x)
+            cb = tf.keras.utils.deserialize_keras_object(d)
             cbks.append(cb)
 
     # Index train test split
@@ -117,13 +118,21 @@ def train_model_energy_gradient(i=0, out_dir=None, mode='training'):
         print("Info: Making new initialized weights.")
 
     # Scale x,y
-    scaler = EnergyGradientStandardScaler(**scaler_config["config"])
+    if use_mask:
+        scaler = MaskedEnergyGradientStandardScaler(**scaler_config["config"])
+    else:
+        scaler = EnergyGradientStandardScaler(**scaler_config["config"])
     scaler.fit(x[i_train], [y[0][i_train], y[1][i_train]])
     x_rescale, y_rescale = scaler.transform(x, y)
     y1, y2 = y_rescale
 
     # Model + Model precompute layer +feat
     feat_x, feat_grad = out_model.precompute_feature_in_chunks(x_rescale, batch_size=batch_size)
+    
+    print("Debug: type of feat_x is: {}.".format(type(feat_x)))
+    print("Debug: type of feat_grad is: {}.".format(type(feat_grad)))
+    print("Debug: type of y1 is: {}.".format(type(y1)))
+    print("Debug: type of y2 is: {}.".format(type(y2)))
 
     # Train Test split
     xtrain = [feat_x[i_train], feat_grad[i_train]]
@@ -132,20 +141,29 @@ def train_model_energy_gradient(i=0, out_dir=None, mode='training'):
     yval = [y1[i_val], y2[i_val]]
 
     # Setting constant feature normalization
-    optimizer = tf.keras.optimizers.Adam(lr=learning_rate)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
     lr_metric = get_lr_metric(optimizer)
-    mae_energy = ScaledMeanAbsoluteError(scaling_shape=scaler.energy_std.shape)
-    mae_force = ScaledMeanAbsoluteError(scaling_shape=scaler.gradient_std.shape)
+    if use_mask:
+        mae_energy = MaskedScaledMeanAbsoluteError(scaling_shape=scaler.energy_std.shape)
+        mae_force = MaskedScaledMeanAbsoluteError(scaling_shape=scaler.gradient_std.shape)
+        r2_used = masked_r2_metric
+        loss_used = mask_MeanSquaredError
+    else:
+        mae_energy = ScaledMeanAbsoluteError(scaling_shape=scaler.energy_std.shape)
+        mae_force = ScaledMeanAbsoluteError(scaling_shape=scaler.gradient_std.shape)
+        r2_used = r2_metric
+        loss_used = 'mean_squared_error'
+    if energies_only:
+        train_loss = {'energy': loss_used}
+    else:
+        train_loss = {'energy': loss_used, 'force': loss_used}
     mae_energy.set_scale(scaler.energy_std)
     mae_force.set_scale(scaler.gradient_std)
-    if energies_only:
-        train_loss = {'energy': 'mean_squared_error'}
-    else:
-        train_loss = {'energy': 'mean_squared_error', 'force': 'mean_squared_error'}
+    
     out_model.compile(optimizer=optimizer,
                       loss=train_loss, loss_weights=loss_weights,
-                      metrics={'energy': [mae_energy, lr_metric, r2_metric],
-                               'force': [mae_force, lr_metric, r2_metric]}
+                      metrics={'energy': [mae_energy, lr_metric, r2_used],
+                               'force': [mae_force, lr_metric, r2_used]}
                       )
 
     scaler.print_params_info()
@@ -168,17 +186,17 @@ def train_model_energy_gradient(i=0, out_dir=None, mode='training'):
     print("Info: Saving auto-scaler to file...")
     scaler.save_weights(os.path.join(out_dir, "scaler_weights.npy"))
 
-    # Plot and Save
-    yval_plot = [y[0][i_val], y[1][i_val]]
-    ytrain_plot = [y[0][i_train], y[1][i_train]]
-    # Convert back scaler
+    ## Plot and Save
+    #yval_plot = [y[0][i_val], y[1][i_val]]
+    #ytrain_plot = [y[0][i_train], y[1][i_train]]
+    ## Convert back scaler
     pval = out_model.predict(xval)
-    ptrain = out_model.predict(xtrain)
+    #ptrain = out_model.predict(xtrain)
     _, pval = scaler.inverse_transform(y=[pval['energy'], pval['force']])
-    _, ptrain = scaler.inverse_transform(y=[ptrain['energy'], ptrain['force']])
+    #_, ptrain = scaler.inverse_transform(y=[ptrain['energy'], ptrain['force']])
 
-    print("Info: Predicted Energy shape:", ptrain[0].shape)
-    print("Info: Predicted Gradient shape:", ptrain[1].shape)
+    #print("Info: Predicted Energy shape:", ptrain[0].shape)
+    #print("Info: Predicted Gradient shape:", ptrain[1].shape)
     print("Info: Plot fit stats...")
 
     # Plot
@@ -192,46 +210,46 @@ def train_model_energy_gradient(i=0, out_dir=None, mode='training'):
 
     plot_learning_curve(hist.history['energy_lr'], filename='fit' + str(i), dir_save=dir_save)
 
-    plot_scatter_prediction(pval[0], yval_plot[0], save_plot_to_file=True, dir_save=dir_save,
-                            filename='fit' + str(i) + "_energy",
-                            filetypeout='.png', unit_actual=unit_label_energy, unit_predicted=unit_label_energy,
-                            plot_title="Prediction Energy")
+    #plot_scatter_prediction(pval[0], yval_plot[0], save_plot_to_file=True, dir_save=dir_save,
+    #                        filename='fit' + str(i) + "_energy",
+    #                        filetypeout='.png', unit_actual=unit_label_energy, unit_predicted=unit_label_energy,
+    #                        plot_title="Prediction Energy")
 
-    plot_scatter_prediction(pval[1], yval_plot[1], save_plot_to_file=True, dir_save=dir_save,
-                            filename='fit' + str(i) + "_grad",
-                            filetypeout='.png', unit_actual=unit_label_grad, unit_predicted=unit_label_grad,
-                            plot_title="Prediction Gradient")
+    #plot_scatter_prediction(pval[1], yval_plot[1], save_plot_to_file=True, dir_save=dir_save,
+    #                        filename='fit' + str(i) + "_grad",
+    #                        filetypeout='.png', unit_actual=unit_label_grad, unit_predicted=unit_label_grad,
+    #                        plot_title="Prediction Gradient")
 
-    plot_error_vec_mean([pval[1], ptrain[1]], [yval_plot[1], ytrain_plot[1]],
-                        label_curves=["Validation gradients", "Training Gradients"], unit_predicted=unit_label_grad,
-                        filename='fit' + str(i) + "_grad", dir_save=dir_save, save_plot_to_file=True,
-                        filetypeout='.png', x_label='Gradients xyz * #atoms * #states ',
-                        plot_title="Gradient mean error")
+    #plot_error_vec_mean([pval[1], ptrain[1]], [yval_plot[1], ytrain_plot[1]],
+    #                    label_curves=["Validation gradients", "Training Gradients"], unit_predicted=unit_label_grad,
+    #                    filename='fit' + str(i) + "_grad", dir_save=dir_save, save_plot_to_file=True,
+    #                    filetypeout='.png', x_label='Gradients xyz * #atoms * #states ',
+    #                    plot_title="Gradient mean error")
 
-    plot_error_vec_max([pval[1], ptrain[1]], [yval_plot[1], ytrain_plot[1]],
-                       label_curves=["Validation", "Training"],
-                       unit_predicted=unit_label_grad, filename='fit' + str(i) + "_grad",
-                       dir_save=dir_save, save_plot_to_file=True, filetypeout='.png',
-                       x_label='Gradients xyz * #atoms * #states ', plot_title="Gradient max error")
+    #plot_error_vec_max([pval[1], ptrain[1]], [yval_plot[1], ytrain_plot[1]],
+    #                   label_curves=["Validation", "Training"],
+    #                   unit_predicted=unit_label_grad, filename='fit' + str(i) + "_grad",
+    #                   dir_save=dir_save, save_plot_to_file=True, filetypeout='.png',
+    #                   x_label='Gradients xyz * #atoms * #states ', plot_title="Gradient max error")
 
-    pval = out_model.predict(xval)
-    ptrain = out_model.predict(xtrain)
-    _, pval = scaler.inverse_transform(y=[pval['energy'], pval['force']])
-    _, ptrain = scaler.inverse_transform(y=[ptrain['energy'], ptrain['force']])
-    out_model.precomputed_features = False
-    out_model.output_as_dict = False
-    ptrain2 = out_model.predict(x_rescale[i_train])
-    _, ptrain2 = scaler.inverse_transform(y=[ptrain2[0], ptrain2[1]])
-    print("Info: Max error precomputed and full gradient computation:")
-    print("Energy", np.max(np.abs(ptrain[0] - ptrain2[0])))
-    print("Gradient", np.max(np.abs(ptrain[1] - ptrain2[1])))
+    #pval = out_model.predict(xval)
+    #ptrain = out_model.predict(xtrain)
+    #_, pval = scaler.inverse_transform(y=[pval['energy'], pval['force']])
+    #_, ptrain = scaler.inverse_transform(y=[ptrain['energy'], ptrain['force']])
+    #out_model.precomputed_features = False
+    #out_model.output_as_dict = False
+    #ptrain2 = out_model.predict(x_rescale[i_train])
+    #_, ptrain2 = scaler.inverse_transform(y=[ptrain2[0], ptrain2[1]])
+    #print("Info: Max error precomputed and full gradient computation:")
+    #print("Energy", np.max(np.abs(ptrain[0] - ptrain2[0])))
+    #print("Gradient", np.max(np.abs(ptrain[1] - ptrain2[1])))
     error_val = [np.mean(np.abs(pval[0] - y[0][i_val])), np.mean(np.abs(pval[1] - y[1][i_val]))]
-    error_train = [np.mean(np.abs(ptrain[0] - y[0][i_train])), np.mean(np.abs(ptrain[1] - y[1][i_train]))]
+    #error_train = [np.mean(np.abs(ptrain[0] - y[0][i_train])), np.mean(np.abs(ptrain[1] - y[1][i_train]))]
     print("error_val:", error_val)
-    print("error_train:", error_train)
-    error_dict = {"train": [error_train[0].tolist(), error_train[1].tolist()],
-                  "valid": [error_val[0].tolist(), error_val[1].tolist()]}
-    save_json_file(error_dict, os.path.join(out_dir, "fit_error.json"))
+    #print("error_train:", error_train)
+    #error_dict = {"train": [error_train[0].tolist(), error_train[1].tolist()],
+    #              "valid": [error_val[0].tolist(), error_val[1].tolist()]}
+    #save_json_file(error_dict, os.path.join(out_dir, "fit_error.json"))
 
     print("Info: Saving model to file...")
     out_model.precomputed_features = False

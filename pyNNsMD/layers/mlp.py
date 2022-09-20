@@ -1,5 +1,5 @@
 import tensorflow as tf
-from pyNNsMD.utils.activ import leaky_softplus, shifted_softplus
+from pyNNsMD.utils.activ import leaky_softplus, shifted_softplus, sharp_softplus
 ks = tf.keras
 
 
@@ -48,12 +48,14 @@ class MLP(ks.layers.Layer):
         self.dense_bias_last = dense_bias_last
         self.dense_activ_serialize = dense_activ
         self.dense_activ = ks.activations.deserialize(dense_activ, custom_objects={'leaky_softplus': leaky_softplus,
-                                                                                   'shifted_softplus': shifted_softplus
+                                                                                   'shifted_softplus': shifted_softplus,
+                                                                                   'sharp_softplus': sharp_softplus
                                                                                    })
         self.dense_activ_last_serialize = dense_activ_last
         self.dense_activ_last = ks.activations.deserialize(dense_activ_last,
                                                            custom_objects={'leaky_softplus': leaky_softplus,
-                                                                           'shifted_softplus': shifted_softplus})
+                                                                           'shifted_softplus': shifted_softplus,
+                                                                           'sharp_softplus': sharp_softplus})
         self.dense_activity_regularizer = ks.regularizers.get(dense_activity_regularizer)
         self.dense_kernel_regularizer = ks.regularizers.get(dense_kernel_regularizer)
         self.dense_bias_regularizer = ks.regularizers.get(dense_bias_regularizer)

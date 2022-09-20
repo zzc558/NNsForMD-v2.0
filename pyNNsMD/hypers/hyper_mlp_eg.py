@@ -38,7 +38,8 @@ DEFAULT_HYPER_PARAM_ENERGY_GRADS = {
         'epostep': 10,  # steps of epochs for validation, also steps for changing callbacks
         "callbacks": [],
         'unit_energy': "eV",
-        'unit_gradient': "eV/A"
+        'unit_gradient': "eV/A",
+        'mask': False
     },
     'retraining': {
         'initialize_weights': False,

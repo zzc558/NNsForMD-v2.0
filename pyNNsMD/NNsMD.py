@@ -3,6 +3,7 @@ import sys
 import numpy as np
 import logging
 import importlib
+import subprocess
 import tensorflow as tf
 
 from pyNNsMD.utils.data import save_json_file, load_json_file, write_list_to_xyz_file
@@ -423,6 +424,14 @@ class NeuralNetEnsemble:
                 fit_error.append(load_json_file(fit_error_path))
 
         return fit_error
+    
+    def plot(self, m):
+        file_path = os.path.realpath(os.path.dirname(__file__))
+        folder_sequence = os.path.split(file_path)
+        filepath = os.path.join(*folder_sequence[:], "plots")
+        plot_script = os.path.join(filepath, "plots.py")
+        for i in range(0, len(self._models)):
+            proc = subprocess.Popen(["python3", plot_script, "-i", str(i), '-f', filepath, "-g", str(g), '-m', str(m)])
 
     def predict(self, x, **kwargs):
         y_list = []

@@ -38,3 +38,18 @@ def shifted_softplus(x):
 
     """
     return ks.activations.softplus(x) - ks.backend.log(2.0)
+
+
+@tf.keras.utils.register_keras_serializable(package='pyNNsMD', name='sharp_softplus')
+def sharp_softplus(n=1.0):
+    """
+    softplus activation with parameter n adjustable. y = ln(1 + exp(nx)) / n
+
+    Args:
+        n (float, optional): sharpness parameter. The default is 1.0.
+
+    Returns:
+        func: lambda function of x.
+    """
+
+    return lambda x: ks.activations.softplus(n * x) / n

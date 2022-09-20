@@ -131,6 +131,47 @@ class LinearWarmupExponentialLearningRateScheduler(tf.keras.callbacks.LearningRa
         return config
 
 
+@tf.keras.utils.register_keras_serializable(package='pyNNsMD', name='ExponentialLearningRateScheduler')
+class ExponentialLearningRateScheduler(tf.keras.callbacks.LearningRateScheduler):
+    """Callback for expoential decrease of the learning rate.
+
+    This class inherits from tf.keras.callbacks.LearningRateScheduler.
+    """
+
+    def __init__(self, lr_start: float, decay_gamma: float, epo_steady: int = 10,
+                 epostep: float = 1.0, verbose: int = 0):
+        """Set the parameters for the learning rate scheduler.
+        Args:
+            lr_start (float): Learning rate at the start of the exp. decay.
+            decay_gamma (float): Gamma parameter in the exponential.
+            epo_steady (int): Number of steps to keep learning rate constant as lr_start. Default is 10.
+            epo_end (int): Number of steps left when ending the learning rate schedule. Default is 10.
+            epostep (float): The epochs to divide factor by. Default is 1.0.
+            verbose (int): Verbosity. Default is 0.
+        """
+        self.decay_gamma = decay_gamma
+        self.lr_start = lr_start
+        self.epo_steady = max(epo_steady, 0)
+        self.epostep = epostep
+        self.verbose = verbose
+        super(ExponentialLearningRateScheduler, self).__init__(schedule=self.schedule_epoch_lr,
+                                                                           verbose=verbose)
+
+    def schedule_epoch_lr(self, epoch, lr):
+        """Reduce the learning rate."""
+        if epoch <= self.epo_steady:
+            new_lr = max(self.lr_start, 0)
+        else:
+            new_lr = max(self.lr_start * np.power(self.decay_gamma, (epoch - self.epo_steady) / self.epostep), 0)
+        return float(new_lr)
+
+    def get_config(self):
+        config = super(LinearWarmupExponentialLearningRateScheduler, self).get_config()
+        config.update({"lr_start": self.lr_start, "decay_gamma": self.decay_gamma,
+                       "epo_steady": self.epo_steady, "epostep":self.epostep, "verbose": self.verbose})
+        return config
+
+
 @tf.keras.utils.register_keras_serializable(package='pyNNsMD', name='EarlyStopping')
 class EarlyStopping(tf.keras.callbacks.Callback):
     """This Callback does basic monitoring of the learning process.

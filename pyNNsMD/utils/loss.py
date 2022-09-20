@@ -1,7 +1,12 @@
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as ks
+from tensorflow.keras import backend as K
 
+
+def mask_MeanSquaredError(y_true, y_pred):
+    mask = K.cast(K.not_equal(y_true, 0.0), dtype='float32')
+    return K.sum(K.square(y_true*mask - y_pred*mask))/(K.sum(mask))
 
 @tf.keras.utils.register_keras_serializable(package='pyNNsMD', name='ScaledMeanAbsoluteError')
 class ScaledMeanAbsoluteError(tf.keras.metrics.MeanAbsoluteError):
@@ -12,10 +17,10 @@ class ScaledMeanAbsoluteError(tf.keras.metrics.MeanAbsoluteError):
                                      dtype=tf.keras.backend.floatx())
         self.scaling_shape = scaling_shape
 
-    def reset_states(self):
-            # Super variables
-            ks.backend.set_value(self.total, 0)
-            ks.backend.set_value(self.count, 0)
+    def reset_state(self):
+        # Super variables
+        ks.backend.set_value(self.total, 0)
+        ks.backend.set_value(self.count, 0)
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         y_true = self.scale * y_true
@@ -25,6 +30,42 @@ class ScaledMeanAbsoluteError(tf.keras.metrics.MeanAbsoluteError):
     def get_config(self):
         """Returns the serializable config of the metric."""
         mae_conf = super(ScaledMeanAbsoluteError, self).get_config()
+        mae_conf.update({"scaling_shape": self.scaling_shape})
+        return mae_conf
+
+    def set_scale(self,scale):
+        ks.backend.set_value(self.scale, scale)
+
+
+@tf.keras.utils.register_keras_serializable(package='pyNNsMD', name='MaskedScaledMeanAbsoluteError')
+class MaskedScaledMeanAbsoluteError(tf.keras.metrics.Metric):
+    def __init__(self, scaling_shape=(), name='mean_absolute_error', **kwargs):
+        super(MaskedScaledMeanAbsoluteError, self).__init__(name=name, **kwargs)
+        self.scale = self.add_weight(shape=scaling_shape, initializer=tf.keras.initializers.Ones(), name='scale_mae',
+                                     dtype=tf.keras.backend.floatx())
+        self.scaling_shape = scaling_shape
+        self.total = self.add_weight(name='total', initializer='zeros')
+        self.count = self.add_weight(name='count', initializer='zeros')
+
+    def reset_state(self):
+        # Super variables
+        ks.backend.set_value(self.total, 0)
+        ks.backend.set_value(self.count, 0)
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        mask = K.cast(K.not_equal(y_true, 0.0), dtype='float32')
+        y_true = self.scale * y_true
+        y_pred = self.scale * y_pred
+        self.total.assign_add(K.sum(K.abs(y_true - y_pred) * mask))
+        self.count.assign_add(K.sum(mask))
+        #return super(ScaledMeanAbsoluteError, self).update_state(y_true, y_pred, sample_weight=sample_weight)
+
+    def result(self):
+        return self.total/self.count
+
+    def get_config(self):
+        """Returns the serializable config of the metric."""
+        mae_conf = super(MaskedScaledMeanAbsoluteError, self).get_config()
         mae_conf.update({"scaling_shape": self.scaling_shape})
         return mae_conf
 
@@ -80,6 +121,24 @@ def r2_metric(y_true, y_pred):
     """
     ss_res = ks.backend.sum(ks.backend.square(y_true - y_pred))
     ss_tot = ks.backend.sum(ks.backend.square(y_true - ks.backend.mean(y_true)))
+    return 1 - ss_res / (ss_tot + ks.backend.epsilon())
+
+
+def masked_r2_metric(y_true, y_pred):
+    """
+    Compute r2 metric with missing ground truth values.
+
+    Args:
+        y_true (tf.tensor): True y-values.
+        y_pred (tf.tensor): Predicted y-values.
+
+    Returns:
+        tf.tensor: r2 metric.
+
+    """
+    mask = K.cast(K.not_equal(y_true, 0.0), dtype='float32')
+    ss_res = ks.backend.sum(ks.backend.square(y_true * mask - y_pred * mask))
+    ss_tot = K.sum(K.square((y_true * mask - K.sum(y_true * mask)/K.sum(mask)) * mask))
     return 1 - ss_res / (ss_tot + ks.backend.epsilon())
 
 
