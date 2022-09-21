@@ -370,7 +370,7 @@ class NeuralNetEnsemble:
         self.logger.info(f"Submitted training for models {training_script}")
         return proc
 
-    def fit(self, training_scripts: list, gpu_dist: list = None, proc_async=True, fit_mode="training"):
+    def fit(self, training_scripts: list, gpu_dist: list = None, proc_async=True, fit_mode="training", load_model_for_plot=0):
         """Fit NN to data. Model weights and hyperparameter must always be saved to file before fit.
 
         The fit routine calls training scripts on the data_folder in parallel.
@@ -405,10 +405,13 @@ class NeuralNetEnsemble:
             # Wait for models to finish
             for proc in proc_list:
                 if proc is None:
-                    self.logger.warning("No valid process to wait for.")
+                    self.logger.warning("Fits: No valid process to wait for.")
                 else:
                     proc.wait()
-
+                    
+        # start new subprocesses to plot training/validation results
+        self.plot(fit_mode, gpu_dist, proc_async, load_model_for_plot)        
+            
         # Look for fit-error in folder
         self.logger.info("Searching Folder for fit results...")
         self.load()
@@ -425,13 +428,30 @@ class NeuralNetEnsemble:
 
         return fit_error
     
-    def plot(self, m):
+    def plot(self, m, gpu_dist, proc_async, load_model):
+        """Plot training/validation results with new subprocesses"""
+        # locate the plots.py
         file_path = os.path.realpath(os.path.dirname(__file__))
         folder_sequence = os.path.split(file_path)
         filepath = os.path.join(*folder_sequence[:], "plots")
         plot_script = os.path.join(filepath, "plots.py")
+        
+        # start new subprocesses for each model to plot training/validation results
+        proc_list = []
         for i in range(0, len(self._models)):
-            proc = subprocess.Popen(["python3", plot_script, "-i", str(i), '-f', filepath, "-g", str(g), '-m', str(m)])
+            filepath = os.path.join(self._directory, "model_v%s" % i)
+            proc = subprocess.Popen(["python3", plot_script, "-i", str(i), '-f', filepath, "-g", str(gpu_dist[i]), '-m', str(m), '-l', str(load_model)])
+            proc_list.append(proc)
+            
+        # wait for plot to finish
+        if proc_async:
+            self.logger.info("Plots subprocesses submitted, waiting...")
+            # Wait for models to finish
+            for proc in proc_list:
+                if proc is None:
+                    self.logger.warning("Plots: No valid process to wait for.")
+                else:
+                    proc.wait()
 
     def predict(self, x, **kwargs):
         y_list = []

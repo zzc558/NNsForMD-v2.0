@@ -40,14 +40,14 @@ from pyNNsMD.plots.loss import plot_loss_curves, plot_learning_curve
 from pyNNsMD.plots.pred import plot_scatter_prediction
 from pyNNsMD.plots.error import plot_error_vec_mean, plot_error_vec_max
 
-def plot_results(i=0, out_dir=None, mode='training', load_model: bool = False):
+def plot_results(i=0, out_dir=None, mode='training', load_model: int = 0):
     """Plot the training/validation results. Uses precomputed feature and model representation.
 
     Args:
         i (int, optional): Model index. The default is 0.
         out_dir (str, optional): Directory for fit output. The default is None.
         mode (str, optional): Fit-mode to take from hyperparameters. The default is 'training'.
-        load_model (bool): Whether to load model without remaking the model. Default is False.
+        load_model (int): Whether to load model without remaking the model. Default is 0 (False).
 
     Raises:
         ValueError: Wrong input shape.
@@ -92,7 +92,7 @@ def plot_results(i=0, out_dir=None, mode='training', load_model: bool = False):
     x_rescale, _ = scaler.transform(x=x, y=None)
         
     # Load model
-    if load_model:
+    if load_model == 1:
         out_model = tf.keras.models.load_model(os.path.join(out_dir, "model_tf"), compile=False)
     else:
         out_model = EnergyGradientModel(**model_config["config"])
@@ -142,17 +142,17 @@ def plot_results(i=0, out_dir=None, mode='training', load_model: bool = False):
                        dir_save=dir_save, save_plot_to_file=True, filetypeout='.png',
                        x_label='Gradients xyz * #atoms * #states ', plot_title="Gradient max error")
 
-    pval = out_model.predict(xval)
-    ptrain = out_model.predict(xtrain)
-    _, pval = scaler.inverse_transform(y=[pval['energy'], pval['force']])
-    _, ptrain = scaler.inverse_transform(y=[ptrain['energy'], ptrain['force']])
-    out_model.precomputed_features = False
-    out_model.output_as_dict = False
-    ptrain2 = out_model.predict(x_rescale[i_train])
-    _, ptrain2 = scaler.inverse_transform(y=[ptrain2[0], ptrain2[1]])
-    print("Info: Max error precomputed and full gradient computation:")
-    print("Energy", np.max(np.abs(ptrain[0] - ptrain2[0])))
-    print("Gradient", np.max(np.abs(ptrain[1] - ptrain2[1])))
+    #pval = out_model.predict(xval)
+    #ptrain = out_model.predict(xtrain)
+    #_, pval = scaler.inverse_transform(y=[pval['energy'], pval['force']])
+    #_, ptrain = scaler.inverse_transform(y=[ptrain['energy'], ptrain['force']])
+    #out_model.precomputed_features = False
+    #out_model.output_as_dict = False
+    #ptrain2 = out_model.predict(x_rescale[i_train])
+    #_, ptrain2 = scaler.inverse_transform(y=[ptrain2[0], ptrain2[1]])
+    #print("Info: Max error precomputed and full gradient computation:")
+    #print("Energy", np.max(np.abs(ptrain[0] - ptrain2[0])))
+    #print("Gradient", np.max(np.abs(ptrain[1] - ptrain2[1])))
     error_val = [np.mean(np.abs(pval[0] - y[0][i_val])), np.mean(np.abs(pval[1] - y[1][i_val]))]
     error_train = [np.mean(np.abs(ptrain[0] - y[0][i_train])), np.mean(np.abs(ptrain[1] - y[1][i_train]))]
     print("error_val:", error_val)
@@ -162,6 +162,6 @@ def plot_results(i=0, out_dir=None, mode='training', load_model: bool = False):
     save_json_file(error_dict, os.path.join(out_dir, "fit_error.json"))
     
 if __name__ == "__main__":
-    plot_results(args['index'], args['filepath'], args['mode'], args['load'])
+    plot_results(args['index'], args['filepath'], args['mode'], int(args['load']))
 
 fstdout.close()
